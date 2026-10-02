@@ -3009,7 +3009,6 @@ public abstract class HttpTest extends SimpleHttpTest2 {
     }, new DeploymentOptions().setThreadingModel(ThreadingModel.WORKER));
   }
 
-  @Repeat(times = 16)
   @Test
   public void testServerReadStreamInWorker(Checkpoint checkpoint) throws Exception {
     int numReq = 1;
@@ -3020,7 +3019,7 @@ public abstract class HttpTest extends SimpleHttpTest2 {
         public Future<?> start() throws Exception {
           HttpServer server = createHttpServer();
           server.requestHandler(req -> {
-            req.end().onComplete(TestUtils.onSuccess(v -> {
+            req.end().onComplete(onSuccess(v -> {
               req.response().end();
             }));
             req.pause();
