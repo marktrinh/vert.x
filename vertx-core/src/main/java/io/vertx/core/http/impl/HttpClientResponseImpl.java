@@ -11,6 +11,7 @@
 
 package io.vertx.core.http.impl;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.vertx.codegen.annotations.Nullable;
@@ -21,6 +22,7 @@ import io.vertx.core.Promise;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.*;
 import io.vertx.core.http.impl.headers.HeadersAdaptor;
+import io.vertx.core.impl.buffer.VertxByteBufAllocator;
 import io.vertx.core.internal.buffer.BufferInternal;
 import io.vertx.core.internal.logging.Logger;
 import io.vertx.core.internal.logging.LoggerFactory;
@@ -33,7 +35,7 @@ import java.util.List;
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
  */
-public class HttpClientResponseImpl implements HttpClientResponse  {
+public class HttpClientResponseImpl implements HttpClientResponse, ContentDecoder  {
 
   private static final Throwable ENDED_SENTINEL = new Throwable();
 
@@ -49,6 +51,7 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
   private HttpEventHandler eventHandler;
   private Handler<HttpFrame> customFrameHandler;
   private Handler<StreamPriority> priorityHandler;
+  private FlowController flowController;
 
   // Cache these for performance
   private final MultiMap headers;
@@ -237,7 +240,7 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
 
   @Override
   public HttpClientResponse pause() {
-    stream.pause();
+    flowController.pause();
     return this;
   }
 
@@ -248,7 +251,7 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
 
   @Override
   public HttpClientResponse fetch(long amount) {
-    stream.fetch(amount);
+    flowController.fetch(amount);
     return this;
   }
 
@@ -271,16 +274,6 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
     }
   }
 
-  void handleChunk(Buffer data) {
-    HttpEventHandler handler;
-    synchronized (conn) {
-      handler = eventHandler;
-    }
-    if (handler != null) {
-      handler.handleChunk(data);
-    }
-  }
-
   void handleTrailers(MultiMap map) {
     synchronized (conn) {
       MultiMap t = trailers;
@@ -293,7 +286,7 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
     }
   }
 
-  void handleEnd(Void v) {
+  public void handleEnd() {
     HttpEventHandler handler;
     synchronized (conn) {
       ended = ENDED_SENTINEL;
@@ -364,5 +357,28 @@ public class HttpClientResponseImpl implements HttpClientResponse  {
     if (handler != null) {
       handler.handle(streamPriority);
     }
+  }
+
+  @Override
+  public void init(FlowController flowController) {
+    this.flowController = flowController;
+  }
+
+  @Override
+  public void handle(ByteBuf chunk) {
+    HttpEventHandler handler;
+    synchronized (conn) {
+      handler = eventHandler;
+    }
+    if (handler != null) {
+      ByteBuf buffer = VertxByteBufAllocator.DEFAULT.heapBuffer(chunk.readableBytes());
+      buffer.writeBytes(chunk, chunk.readerIndex(), chunk.readableBytes());
+      Buffer buff = BufferInternal.buffer(buffer);
+      handler.handleChunk(buff);
+    }
+  }
+
+  @Override
+  public void destroy() {
   }
 }
